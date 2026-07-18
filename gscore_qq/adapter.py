@@ -198,8 +198,10 @@ class Adapter:
         assert self.store
         kind, target_path, user_type = mapping[event]
         author = data.get("author", {})
-        target_id = author.get("id", "") if target_path == "author.id" else data.get(target_path, "")
         user_id = author.get("member_openid") or author.get("user_openid") or author.get("id", "")
+        target_id = user_id if target_path == "author.id" else data.get(target_path, "")
+        context_id = str(user_id) if kind in {"c2c", "direct"} else str(target_id)
+        core_kind = "c2c" if kind == "direct" else kind
         text = AT_RE.sub("", data.get("content", "")).strip()
         content = [Segment("text", text)] if text else []
         image_urls = [item["url"] for item in data.get("attachments", []) if item.get("url")]
@@ -209,14 +211,18 @@ class Adapter:
             for url in await self.store.get_images(reference_id):
                 if url not in image_urls:
                     image_urls.append(url)
+        elif not image_urls and text:
+            # QQ C2C/group events do not expose quote metadata. Associate a
+            # following command with the latest image from the same session.
+            image_urls.extend(await self.store.get_conversation_images(core_kind, context_id))
         content.extend(Segment("image", url) for url in image_urls)
         if event in {"GROUP_AT_MESSAGE_CREATE", "AT_MESSAGE_CREATE"}:
             content.append(Segment("at", self.self_id))
         msg_id = data.get("id", event_id)
         if image_urls:
             await self.store.save_images(msg_id, image_urls)
-        context_id = str(user_id) if kind == "direct" else str(target_id)
-        core_kind = "c2c" if kind == "direct" else kind
+            if data.get("attachments"):
+                await self.store.save_conversation_images(core_kind, context_id, image_urls)
         ctx = ReplyContext(kind, str(target_id), msg_id, event_id)
         await self.store.save_context(core_kind, context_id, ctx)
         if await self._handle_admin_command(text, str(user_id), core_kind, context_id, ctx):

@@ -80,6 +80,29 @@ async def test_quoted_image_is_restored_from_message_cache(tmp_path):
     await adapter.store.close()
 
 
+async def test_c2c_command_uses_latest_session_image_without_quote_metadata(tmp_path):
+    adapter = await make_adapter(tmp_path)
+    url = "https://multimedia.nt.qq.com.cn/download?fileid=session"
+    await adapter._handle_event(
+        "C2C_MESSAGE_CREATE",
+        {"id": "image-msg", "author": {"user_openid": "user"}, "attachments": [{"url": url}]},
+        "event-1",
+    )
+    await adapter._handle_event(
+        "C2C_MESSAGE_CREATE",
+        {"id": "command-msg", "author": {"user_openid": "user"}, "content": "ww上传ams面板图"},
+        "event-2",
+    )
+    await adapter._core_queue.get()
+    payload = msgspec.json.decode(await adapter._core_queue.get())
+    assert payload["user_id"] == "user"
+    assert payload["content"] == [
+        {"type": "text", "data": "ww上传ams面板图"},
+        {"type": "image", "data": url},
+    ]
+    await adapter.store.close()
+
+
 async def test_bad_gateway_event_does_not_stop_next_event(tmp_path):
     adapter = await make_adapter(tmp_path)
     adapter._handle_event = AsyncMock(side_effect=[ValueError("bad event"), None])

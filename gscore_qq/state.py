@@ -29,6 +29,11 @@ class StateStore:
             CREATE TABLE IF NOT EXISTS message_images (
                 msg_id TEXT PRIMARY KEY, urls TEXT NOT NULL, created_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS conversation_images (
+                core_kind TEXT NOT NULL, context_id TEXT NOT NULL,
+                urls TEXT NOT NULL, created_at REAL NOT NULL,
+                PRIMARY KEY (core_kind, context_id)
+            );
             """
         )
         self._db.commit()
@@ -74,10 +79,27 @@ class StateStore:
             row = self._db.execute("SELECT urls, created_at FROM message_images WHERE msg_id=?", (msg_id,)).fetchone()
         return json.loads(row["urls"]) if row and time.time() - row["created_at"] < 1800 else []
 
+    async def save_conversation_images(self, core_kind: str, context_id: str, urls: list[str]) -> None:
+        async with self._lock:
+            self._db.execute(
+                "INSERT OR REPLACE INTO conversation_images VALUES (?, ?, ?, ?)",
+                (core_kind, context_id, json.dumps(urls), time.time()),
+            )
+            self._db.commit()
+
+    async def get_conversation_images(self, core_kind: str, context_id: str, max_age: int = 300) -> list[str]:
+        async with self._lock:
+            row = self._db.execute(
+                "SELECT urls, created_at FROM conversation_images WHERE core_kind=? AND context_id=?",
+                (core_kind, context_id),
+            ).fetchone()
+        return json.loads(row["urls"]) if row and time.time() - row["created_at"] < max_age else []
+
     async def prune(self) -> None:
         async with self._lock:
             self._db.execute("DELETE FROM contexts WHERE created_at < ?", (time.time() - 290,))
             self._db.execute("DELETE FROM message_images WHERE created_at < ?", (time.time() - 1800,))
+            self._db.execute("DELETE FROM conversation_images WHERE created_at < ?", (time.time() - 300,))
             self._db.execute(
                 "DELETE FROM message_images WHERE msg_id NOT IN (SELECT msg_id FROM message_images ORDER BY created_at DESC LIMIT 2048)"
             )

@@ -24,6 +24,13 @@ def test_target_mapping():
     assert Adapter._core_target_kind("sub_channel") == "channel"
 
 
+def test_admin_ids_are_loaded(monkeypatch):
+    monkeypatch.setenv("QQ_APP_ID", "id")
+    monkeypatch.setenv("QQ_APP_SECRET", "secret")
+    monkeypatch.setenv("QQ_ADMIN_IDS", " user-a, user-b ,, ")
+    assert Config.from_env().admin_ids == {"user-a", "user-b"}
+
+
 async def test_threaded_resolver_is_available():
     # Windows deployments must not depend on aiodns being able to reach DNS.
     assert isinstance(aiohttp.ThreadedResolver(), aiohttp.ThreadedResolver)

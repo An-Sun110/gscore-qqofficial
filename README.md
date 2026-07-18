@@ -128,8 +128,26 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-windows-task.ps1
 | `GSCORE_TOKEN` | 空 | 与 core `config.json` 中的 `WS_TOKEN` 一致 |
 | `QQ_API_BASE` | `https://api.sgroup.qq.com` | QQ OpenAPI 地址 |
 | `LOG_LEVEL` | `INFO` | 日志级别 |
+| `QQ_ADMIN_IDS` | 空 | 可执行管理命令的用户 OpenID，多个用英文逗号分隔 |
 
 系统环境变量优先于 `.env` 文件。
+
+## 管理命令
+
+先把管理员的 QQ OpenID 写入 `QQ_ADMIN_IDS`，例如：
+
+```dotenv
+QQ_ADMIN_IDS=305AB68C4C2FE10EFDA0B2381ACB7622
+```
+
+然后通过 QQ 向机器人发送：
+
+```text
+/gscore-qq restart
+/gscore-qq update
+```
+
+`restart` 会使用当前 Python 解释器替换进程。`update` 仅支持 Git 源码部署，它会执行 `git pull --ff-only` 和 `pip install -e .`，成功后重启。Docker 镜像不包含 Git 仓库，必须在宿主机使用 `docker compose up -d --build` 更新。未配置管理员或 OpenID 不匹配时，管理命令会被拒绝。
 
 ## 故障排查
 

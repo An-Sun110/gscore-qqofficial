@@ -10,6 +10,7 @@ services:
       GSCORE_URL: ${GSCORE_URL:-ws://host.docker.internal:8765/ws/QQOfficial}
       GSCORE_TOKEN: ${GSCORE_TOKEN:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      QQ_ADMIN_IDS: ${QQ_ADMIN_IDS:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     security_opt:

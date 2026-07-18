@@ -4,6 +4,9 @@ import asyncio
 import logging
 import re
 import random
+import os
+from pathlib import Path
+import sys
 import time
 from collections import OrderedDict
 from typing import Any
@@ -175,11 +178,58 @@ class Adapter:
         self._contexts.move_to_end(key)
         while len(self._contexts) > 2048:
             self._contexts.popitem(last=False)
+        if await self._handle_admin_command(text, str(user_id), ctx):
+            return
         receive = CoreReceive(
             bot_self_id=self.self_id, msg_id=msg_id, user_type=user_type, group_id=str(target_id) if user_type != "direct" else None,
             user_id=str(user_id), sender={"nickname": author.get("username") or data.get("member", {}).get("nick", "")}, content=content,
         )
         await self.core.send_bytes(msgspec.json.encode(receive))
+
+    async def _handle_admin_command(self, text: str, user_id: str, ctx: ReplyContext) -> bool:
+        command = text.strip().lower()
+        if command not in {"/gscore-qq restart", "/gscore-qq update"}:
+            return False
+        assert self.api
+        if user_id not in self.config.admin_ids:
+            log.warning("用户 %s 尝试执行管理命令: %s", user_id, command)
+            await self.api.send_text(ctx, "无权执行该命令。")
+            return True
+        if command.endswith("restart"):
+            await self.api.send_text(ctx, "适配器正在重启。")
+            await asyncio.sleep(0.5)
+            self._replace_process()
+        project = Path(__file__).resolve().parent.parent
+        if not (project / ".git").is_dir():
+            await self.api.send_text(ctx, "当前不是 Git 源码部署。Docker 请在主机执行 docker compose up -d --build。")
+            return True
+        await self.api.send_text(ctx, "正在检查并安装更新，完成后自动重启。")
+        try:
+            await self._run_update(project)
+        except Exception as exc:
+            log.exception("在线更新失败")
+            await self.api.send_text(ctx, f"更新失败：{str(exc)[:160]}")
+            return True
+        await self.api.send_text(ctx, "更新完成，适配器正在重启。")
+        await asyncio.sleep(0.5)
+        self._replace_process()
+        return True
+
+    @staticmethod
+    async def _run_update(project: Path) -> None:
+        commands = (["git", "pull", "--ff-only"], [sys.executable, "-m", "pip", "install", "-e", "."])
+        for command in commands:
+            process = await asyncio.create_subprocess_exec(
+                *command, cwd=project, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+            )
+            output, _ = await process.communicate()
+            if process.returncode:
+                detail = output.decode(errors="replace")[-500:]
+                raise RuntimeError(f"{' '.join(command)}: {detail}")
+
+    @staticmethod
+    def _replace_process() -> None:
+        os.execv(sys.executable, [sys.executable, "-m", "gscore_qq"])
 
     def _prune_message_images(self) -> None:
         cutoff = time.monotonic() - 1800

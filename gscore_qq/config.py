@@ -15,6 +15,7 @@ class Config:
     gscore_token: str = ""
     api_base: str = "https://api.sgroup.qq.com"
     log_level: str = "INFO"
+    admin_ids: frozenset[str] = frozenset()
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -30,6 +31,7 @@ class Config:
             gscore_token=os.getenv("GSCORE_TOKEN", ""),
             api_base=os.getenv("QQ_API_BASE", cls.api_base).rstrip("/"),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
+            admin_ids=frozenset(x.strip() for x in os.getenv("QQ_ADMIN_IDS", "").split(",") if x.strip()),
         )
 
     @property

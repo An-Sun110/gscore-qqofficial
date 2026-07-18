@@ -39,4 +39,4 @@ class ReplyContext(msgspec.Struct):
     msg_id: str
     event_id: str = ""
     seq: int = 0
-    created_at: float = msgspec.field(default_factory=time.monotonic)
+    created_at: float = msgspec.field(default_factory=time.time)

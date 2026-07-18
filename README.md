@@ -129,8 +129,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-windows-task.ps1
 | `QQ_API_BASE` | `https://api.sgroup.qq.com` | QQ OpenAPI 地址 |
 | `LOG_LEVEL` | `INFO` | 日志级别 |
 | `QQ_ADMIN_IDS` | 空 | 可执行管理命令的用户 OpenID，多个用英文逗号分隔 |
+| `STATE_PATH` | `data/state.db` | SQLite 状态文件路径 |
+| `QUEUE_SIZE` | `1000` | QQ 到 core 的最大等待队列长度 |
+| `METRICS_INTERVAL` | `60` | 健康指标日志间隔（秒） |
 
 系统环境变量优先于 `.env` 文件。
+
+回复上下文、`msg_seq` 和引用图片索引存储在 SQLite。Docker Compose 默认使用命名卷 `gscore-qq-data`，systemd 默认使用 `/var/lib/gscore-qqofficial/state.db`，因此普通重启和升级不会丢失有效上下文。
+
+程序收到 `SIGTERM`/`SIGINT` 时会停止接收新任务、取消后台监督器、关闭 WebSocket 和 HTTP 会话，再退出。运行期间每隔 `METRICS_INTERVAL` 秒输出一条健康日志，包含 QQ/core 连接状态、队列积压、上下文数量、重连次数和处理失败数。
 
 ## 管理命令
 

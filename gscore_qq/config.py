@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from dotenv import load_dotenv
@@ -16,6 +17,9 @@ class Config:
     api_base: str = "https://api.sgroup.qq.com"
     log_level: str = "INFO"
     admin_ids: frozenset[str] = frozenset()
+    state_path: Path = Path("data/state.db")
+    queue_size: int = 1000
+    metrics_interval: int = 60
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -32,6 +36,9 @@ class Config:
             api_base=os.getenv("QQ_API_BASE", cls.api_base).rstrip("/"),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             admin_ids=frozenset(x.strip() for x in os.getenv("QQ_ADMIN_IDS", "").split(",") if x.strip()),
+            state_path=Path(os.getenv("STATE_PATH", "data/state.db")),
+            queue_size=max(10, int(os.getenv("QUEUE_SIZE", "1000"))),
+            metrics_interval=max(10, int(os.getenv("METRICS_INTERVAL", "60"))),
         )
 
     @property

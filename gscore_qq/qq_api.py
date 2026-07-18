@@ -69,7 +69,6 @@ class QQAPI:
         return (await self.request("GET", "/gateway/bot"))["url"]
 
     async def send_text(self, ctx: ReplyContext, content: str) -> dict[str, Any]:
-        ctx.seq += 1
         payload: dict[str, Any] = {"content": content or " ", "msg_id": ctx.msg_id, "msg_seq": ctx.seq}
         if ctx.kind in {"group", "c2c"}:
             payload["msg_type"] = 0
@@ -96,6 +95,5 @@ class QQAPI:
             base64.b64decode(encoded, validate=True)
             file_payload.update({"file_type": 1, "file_data": encoded})
         media = await self.request("POST", f"/v2/{target}/{ctx.target_id}/files", json=file_payload)
-        ctx.seq += 1
         payload = {"msg_type": 7, "media": media, "msg_id": ctx.msg_id, "msg_seq": ctx.seq}
         return await self.request("POST", f"/v2/{target}/{ctx.target_id}/messages", json=payload)

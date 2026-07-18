@@ -1,16 +1,19 @@
 import aiohttp
 import msgspec
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from gscore_qq.adapter import Adapter
 from gscore_qq.config import Config
+from gscore_qq.models import ReplyContext
+from gscore_qq.state import StateStore
 
 
-class FakeCore:
-    def __init__(self):
-        self.payload = None
-
-    async def send_bytes(self, payload):
-        self.payload = msgspec.json.decode(payload)
+async def make_adapter(tmp_path: Path) -> Adapter:
+    adapter = Adapter(Config("id", "secret", state_path=tmp_path / "state.db"))
+    adapter.store = StateStore(adapter.config.state_path)
+    return adapter
 
 
 def test_core_url_adds_token():
@@ -36,23 +39,21 @@ async def test_threaded_resolver_is_available():
     assert isinstance(aiohttp.ThreadedResolver(), aiohttp.ThreadedResolver)
 
 
-async def test_incoming_image_uses_downloadable_url():
-    adapter = Adapter(Config("id", "secret"))
-    core = FakeCore()
-    adapter.core = core
+async def test_incoming_image_uses_downloadable_url(tmp_path):
+    adapter = await make_adapter(tmp_path)
     url = "https://multimedia.nt.qq.com.cn/download?fileid=abc"
     await adapter._handle_event(
         "C2C_MESSAGE_CREATE",
         {"id": "msg", "author": {"id": "user"}, "attachments": [{"url": url}]},
         "event",
     )
-    assert core.payload["content"] == [{"type": "image", "data": url}]
+    payload = msgspec.json.decode(await adapter._core_queue.get())
+    assert payload["content"] == [{"type": "image", "data": url}]
+    await adapter.store.close()
 
 
-async def test_quoted_image_is_restored_from_message_cache():
-    adapter = Adapter(Config("id", "secret"))
-    core = FakeCore()
-    adapter.core = core
+async def test_quoted_image_is_restored_from_message_cache(tmp_path):
+    adapter = await make_adapter(tmp_path)
     url = "https://multimedia.nt.qq.com.cn/download?fileid=quoted"
     await adapter._handle_event(
         "C2C_MESSAGE_CREATE",
@@ -69,8 +70,68 @@ async def test_quoted_image_is_restored_from_message_cache():
         },
         "event-2",
     )
-    assert core.payload["content"] == [
+    await adapter._core_queue.get()
+    payload = msgspec.json.decode(await adapter._core_queue.get())
+    assert payload["content"] == [
         {"type": "text", "data": "评分"},
         {"type": "reply", "data": "image-msg"},
         {"type": "image", "data": url},
     ]
+    await adapter.store.close()
+
+
+async def test_bad_gateway_event_does_not_stop_next_event(tmp_path):
+    adapter = await make_adapter(tmp_path)
+    adapter._handle_event = AsyncMock(side_effect=[ValueError("bad event"), None])
+
+    class FakeQQ:
+        def __init__(self):
+            self.frames = iter(
+                [
+                    SimpleNamespace(type=aiohttp.WSMsgType.TEXT, data=msgspec.json.encode({"op": 0, "t": "A", "d": {"id": "1"}})),
+                    SimpleNamespace(type=aiohttp.WSMsgType.TEXT, data=msgspec.json.encode({"op": 0, "t": "B", "d": {"id": "2"}})),
+                ]
+            )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self.frames)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    await adapter._qq_loop(FakeQQ())
+    assert adapter._handle_event.await_count == 2
+    assert adapter.metrics["events_failed"] == 1
+    assert adapter.metrics["events_ok"] == 1
+    await adapter.store.close()
+
+
+async def test_context_and_sequence_survive_store_reopen(tmp_path):
+    path = tmp_path / "state.db"
+    store = StateStore(path)
+    ctx = ReplyContext("c2c", "target", "msg")
+    await store.save_context("c2c", "target", ctx)
+    await store.reserve_sequence("c2c", "target", ctx)
+    await store.close()
+    reopened = StateStore(path)
+    restored = await reopened.get_context("c2c", "target")
+    assert restored is not None
+    assert restored.msg_id == "msg"
+    assert restored.seq == 1
+    await reopened.close()
+
+
+def test_request_stop_sets_shutdown_event():
+    adapter = Adapter(Config("id", "secret"))
+    adapter.request_stop()
+    assert adapter._stop.is_set()
+
+
+async def test_run_closes_cleanly_when_stop_requested(tmp_path):
+    adapter = Adapter(Config("id", "secret", state_path=tmp_path / "state.db"))
+    adapter.request_stop()
+    await adapter.run()
+    assert adapter.store is not None

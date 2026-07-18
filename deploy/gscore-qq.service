@@ -21,6 +21,7 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/gscore-qqofficial
 
 [Install]
 WantedBy=multi-user.target

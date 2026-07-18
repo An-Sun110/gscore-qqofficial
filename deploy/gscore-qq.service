@@ -1,0 +1,26 @@
+[Unit]
+Description=gscore QQ Official Bot adapter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gscore
+Group=gscore
+WorkingDirectory=/opt/gscore-qqofficial
+EnvironmentFile=/etc/gscore-qqofficial.env
+ExecStart=/opt/gscore-qqofficial/.venv/bin/python -m gscore_qq
+Restart=always
+RestartSec=10
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

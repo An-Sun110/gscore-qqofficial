@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gscore-qqofficial"
+version = "0.1.0"
+description = "Lightweight direct adapter between gsuid_core and QQ Official Bot"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["aiohttp>=3.10,<4", "msgspec>=0.18,<1", "python-dotenv>=1,<2"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+gscore-qq = "gscore_qq.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gscore_qq"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

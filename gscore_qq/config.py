@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from dotenv import load_dotenv
+
+
+@dataclass(frozen=True)
+class Config:
+    app_id: str
+    app_secret: str
+    gscore_url: str = "ws://127.0.0.1:8765/ws/QQOfficial"
+    gscore_token: str = ""
+    api_base: str = "https://api.sgroup.qq.com"
+    log_level: str = "INFO"
+
+    @classmethod
+    def from_env(cls) -> "Config":
+        load_dotenv()
+        app_id = os.getenv("QQ_APP_ID", "").strip()
+        app_secret = os.getenv("QQ_APP_SECRET", "").strip()
+        if not app_id or not app_secret:
+            raise ValueError("QQ_APP_ID and QQ_APP_SECRET are required")
+        return cls(
+            app_id=app_id,
+            app_secret=app_secret,
+            gscore_url=os.getenv("GSCORE_URL", cls.gscore_url),
+            gscore_token=os.getenv("GSCORE_TOKEN", ""),
+            api_base=os.getenv("QQ_API_BASE", cls.api_base).rstrip("/"),
+            log_level=os.getenv("LOG_LEVEL", "INFO"),
+        )
+
+    @property
+    def core_ws_url(self) -> str:
+        if not self.gscore_token:
+            return self.gscore_url
+        parts = urlsplit(self.gscore_url)
+        query = dict(parse_qsl(parts.query))
+        query["token"] = self.gscore_token
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))

@@ -22,6 +22,7 @@ from .state import StateStore
 
 log = logging.getLogger(__name__)
 AT_RE = re.compile(r"<@!?\d+>")
+MSG_TYPE_QUOTE = 103
 
 
 class Adapter:
@@ -205,10 +206,14 @@ class Adapter:
         text = AT_RE.sub("", data.get("content", "")).strip()
         content = [Segment("text", text)] if text else []
         image_urls = [item["url"] for item in data.get("attachments", []) if item.get("url")]
-        reference_id = (data.get("message_reference") or {}).get("message_id", "")
+        ref_idx, msg_idx = self._parse_ref_indices(data)
+        reference_id = (data.get("message_reference") or {}).get("message_id", "") or ref_idx
         if reference_id:
             content.append(Segment("reply", reference_id))
-            for url in await self.store.get_images(reference_id):
+            quoted_urls = self._quoted_attachment_urls(data)
+            if not quoted_urls:
+                quoted_urls = await self.store.get_images(reference_id)
+            for url in quoted_urls:
                 if url not in image_urls:
                     image_urls.append(url)
         elif not image_urls and text:
@@ -221,6 +226,8 @@ class Adapter:
         msg_id = data.get("id", event_id)
         if image_urls:
             await self.store.save_images(msg_id, image_urls)
+            if msg_idx and msg_idx != msg_id:
+                await self.store.save_images(msg_idx, image_urls)
             if data.get("attachments"):
                 await self.store.save_conversation_images(core_kind, context_id, image_urls)
         ctx = ReplyContext(kind, str(target_id), msg_id, event_id)
@@ -370,3 +377,33 @@ class Adapter:
     @staticmethod
     def _core_target_kind(target_type: str | None) -> str:
         return {"group": "group", "direct": "c2c", "sub_channel": "channel", "channel": "channel"}.get(target_type or "", target_type or "group")
+
+    @staticmethod
+    def _parse_ref_indices(data: dict[str, Any]) -> tuple[str, str]:
+        ref_idx = ""
+        msg_idx = ""
+        ext = (data.get("message_scene") or {}).get("ext") or []
+        for item in ext:
+            if not isinstance(item, str):
+                continue
+            if item.startswith("ref_msg_idx="):
+                ref_idx = item.removeprefix("ref_msg_idx=").strip()
+            elif item.startswith("msg_idx="):
+                msg_idx = item.removeprefix("msg_idx=").strip()
+            elif item.startswith("refMsgIdx:"):
+                ref_idx = item.removeprefix("refMsgIdx:").strip()
+            elif item.startswith("msgIdx:"):
+                msg_idx = item.removeprefix("msgIdx:").strip()
+        elements = data.get("msg_elements") or []
+        if data.get("message_type") == MSG_TYPE_QUOTE and elements:
+            ref_idx = elements[0].get("msg_idx") or ref_idx
+        return ref_idx, msg_idx
+
+    @staticmethod
+    def _quoted_attachment_urls(data: dict[str, Any]) -> list[str]:
+        if data.get("message_type") != MSG_TYPE_QUOTE:
+            return []
+        elements = data.get("msg_elements") or []
+        if not elements:
+            return []
+        return [item["url"] for item in elements[0].get("attachments") or [] if item.get("url")]

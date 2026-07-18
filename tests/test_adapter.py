@@ -103,6 +103,66 @@ async def test_c2c_command_uses_latest_session_image_without_quote_metadata(tmp_
     await adapter.store.close()
 
 
+async def test_qq_quote_uses_fresh_msg_element_attachment(tmp_path):
+    adapter = await make_adapter(tmp_path)
+    fresh_url = "https://multimedia.nt.qq.com.cn/download?rkey=fresh"
+    await adapter._handle_event(
+        "C2C_MESSAGE_CREATE",
+        {
+            "id": "quote-command",
+            "author": {"user_openid": "user"},
+            "content": "ww上传ams面板图",
+            "message_type": 103,
+            "message_scene": {"ext": ["ref_msg_idx=old-ref", "msg_idx=new-msg"]},
+            "msg_elements": [
+                {
+                    "msg_idx": "authoritative-ref",
+                    "content": "",
+                    "attachments": [{"content_type": "image/png", "url": fresh_url}],
+                }
+            ],
+        },
+        "event",
+    )
+    payload = msgspec.json.decode(await adapter._core_queue.get())
+    assert payload["content"] == [
+        {"type": "text", "data": "ww上传ams面板图"},
+        {"type": "reply", "data": "authoritative-ref"},
+        {"type": "image", "data": fresh_url},
+    ]
+    await adapter.store.close()
+
+
+async def test_quote_cache_uses_msg_idx_not_platform_message_id(tmp_path):
+    adapter = await make_adapter(tmp_path)
+    url = "https://multimedia.nt.qq.com.cn/download?rkey=cached"
+    await adapter._handle_event(
+        "C2C_MESSAGE_CREATE",
+        {
+            "id": "platform-id",
+            "author": {"user_openid": "user"},
+            "attachments": [{"url": url}],
+            "message_scene": {"ext": ["msg_idx=qq-index"]},
+        },
+        "event-1",
+    )
+    await adapter._handle_event(
+        "C2C_MESSAGE_CREATE",
+        {
+            "id": "command",
+            "author": {"user_openid": "user"},
+            "content": "评分",
+            "message_type": 103,
+            "message_scene": {"ext": ["ref_msg_idx=qq-index"]},
+        },
+        "event-2",
+    )
+    await adapter._core_queue.get()
+    payload = msgspec.json.decode(await adapter._core_queue.get())
+    assert {"type": "image", "data": url} in payload["content"]
+    await adapter.store.close()
+
+
 async def test_bad_gateway_event_does_not_stop_next_event(tmp_path):
     adapter = await make_adapter(tmp_path)
     adapter._handle_event = AsyncMock(side_effect=[ValueError("bad event"), None])

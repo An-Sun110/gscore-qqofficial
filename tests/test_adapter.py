@@ -40,3 +40,30 @@ async def test_incoming_image_uses_downloadable_url():
         "event",
     )
     assert core.payload["content"] == [{"type": "image", "data": url}]
+
+
+async def test_quoted_image_is_restored_from_message_cache():
+    adapter = Adapter(Config("id", "secret"))
+    core = FakeCore()
+    adapter.core = core
+    url = "https://multimedia.nt.qq.com.cn/download?fileid=quoted"
+    await adapter._handle_event(
+        "C2C_MESSAGE_CREATE",
+        {"id": "image-msg", "author": {"id": "user"}, "attachments": [{"url": url}]},
+        "event-1",
+    )
+    await adapter._handle_event(
+        "C2C_MESSAGE_CREATE",
+        {
+            "id": "command-msg",
+            "author": {"id": "user"},
+            "content": "评分",
+            "message_reference": {"message_id": "image-msg"},
+        },
+        "event-2",
+    )
+    assert core.payload["content"] == [
+        {"type": "text", "data": "评分"},
+        {"type": "reply", "data": "image-msg"},
+        {"type": "image", "data": url},
+    ]

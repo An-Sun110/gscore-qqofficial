@@ -28,6 +28,7 @@ class Adapter:
         self.core: aiohttp.ClientWebSocketResponse | None = None
         self.self_id = config.app_id
         self._contexts: OrderedDict[tuple[str, str], ReplyContext] = OrderedDict()
+        self._message_images: OrderedDict[str, tuple[float, list[str]]] = OrderedDict()
         self._sequence: int | None = None
         self._session_id: str | None = None
         self._resume_url: str | None = None
@@ -142,14 +143,29 @@ class Adapter:
         user_id = author.get("member_openid") or author.get("user_openid") or author.get("id", "")
         text = AT_RE.sub("", data.get("content", "")).strip()
         content = [Segment("text", text)] if text else []
+        image_urls: list[str] = []
         for attachment in data.get("attachments", []):
             if attachment.get("url"):
                 # MessageReceive expects a directly downloadable URL. link:// is
                 # only the marker used by core when it sends images to adapters.
-                content.append(Segment("image", attachment["url"]))
+                image_urls.append(attachment["url"])
+        reference = data.get("message_reference") or {}
+        reference_id = reference.get("message_id", "")
+        if reference_id:
+            content.append(Segment("reply", reference_id))
+            cached = self._message_images.get(reference_id)
+            if cached and time.monotonic() - cached[0] < 1800:
+                for url in cached[1]:
+                    if url not in image_urls:
+                        image_urls.append(url)
+        content.extend(Segment("image", url) for url in image_urls)
         if event in {"GROUP_AT_MESSAGE_CREATE", "AT_MESSAGE_CREATE"}:
             content.append(Segment("at", self.self_id))
         msg_id = data.get("id", event_id)
+        if image_urls:
+            self._message_images[msg_id] = (time.monotonic(), image_urls)
+            self._message_images.move_to_end(msg_id)
+        self._prune_message_images()
         ctx = ReplyContext(kind, str(target_id), msg_id, event_id)
         # gscore addresses direct replies by user_id, while QQ channel DMs send to guild_id.
         context_id = str(user_id) if kind == "direct" else str(target_id)
@@ -164,6 +180,14 @@ class Adapter:
             user_id=str(user_id), sender={"nickname": author.get("username") or data.get("member", {}).get("nick", "")}, content=content,
         )
         await self.core.send_bytes(msgspec.json.encode(receive))
+
+    def _prune_message_images(self) -> None:
+        cutoff = time.monotonic() - 1800
+        while self._message_images:
+            _, (created_at, _) = next(iter(self._message_images.items()))
+            if len(self._message_images) <= 2048 and created_at >= cutoff:
+                break
+            self._message_images.popitem(last=False)
 
     async def _core_loop(self) -> None:
         assert self.core and self.api

@@ -142,7 +142,9 @@ class Adapter:
         content = [Segment("text", text)] if text else []
         for attachment in data.get("attachments", []):
             if attachment.get("url"):
-                content.append(Segment("image", "link://" + attachment["url"]))
+                # MessageReceive expects a directly downloadable URL. link:// is
+                # only the marker used by core when it sends images to adapters.
+                content.append(Segment("image", attachment["url"]))
         if event in {"GROUP_AT_MESSAGE_CREATE", "AT_MESSAGE_CREATE"}:
             content.append(Segment("at", self.self_id))
         msg_id = data.get("id", event_id)

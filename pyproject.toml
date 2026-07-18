@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gscore-qqofficial"
-version = "0.4.0"
+version = "0.4.1"
 description = "Lightweight direct adapter between gsuid_core and QQ Official Bot"
 readme = "README.md"
 requires-python = ">=3.10"

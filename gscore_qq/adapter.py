@@ -301,14 +301,21 @@ class Adapter:
 
     async def _handle_admin_command(self, text: str, user_id: str, core_kind: str, context_id: str, ctx: ReplyContext) -> bool:
         command = text.strip().lower()
-        if command not in {"/gscore-qq restart", "/gscore-qq update"}:
+        actions = {
+            "/重启": "restart",
+            "/更新": "update",
+            "/gscore-qq restart": "restart",
+            "/gscore-qq update": "update",
+        }
+        action = actions.get(command)
+        if action is None:
             return False
         key = (core_kind, context_id)
         if user_id not in self.config.admin_ids:
             log.warning("用户 %s 尝试执行管理命令: %s", user_id, command)
             await self._send_text(ctx, key, "无权执行该命令。")
             return True
-        if command.endswith("restart"):
+        if action == "restart":
             await self._send_text(ctx, key, "适配器正在重启。")
             await asyncio.sleep(0.5)
             self._replace_process()

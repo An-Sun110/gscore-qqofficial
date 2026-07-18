@@ -11,6 +11,7 @@ from typing import Any
 import aiohttp
 import msgspec
 
+from . import __version__
 from .config import Config
 from .models import CoreReceive, CoreSend, ReplyContext, Segment
 from .qq_api import QQAPI
@@ -35,6 +36,7 @@ class Adapter:
         self.core_connected = False
 
     async def run(self) -> None:
+        log.info("启动 gscore-qqofficial v%s (%s)", __version__, __file__)
         timeout = aiohttp.ClientTimeout(total=60)
         # aiodns may bypass the Windows/proxy DNS path and fail even when
         # socket.getaddrinfo works. ThreadedResolver follows the OS resolver.

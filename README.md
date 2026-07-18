@@ -1,34 +1,16 @@
 # gscore-qqofficial
 
-轻量级 QQ 官方机器人适配器，直接连接 [gsuid_core](https://github.com/Genshin-bots/gsuid_core) 与 [QQ 开放平台](https://bot.q.qq.com/wiki/)。不依赖 NoneBot、OneBot、NapCat 或本地 QQ 客户端。
+直接连接 [gsuid_core](https://github.com/Genshin-bots/gsuid_core) 与 [QQ 官方机器人](https://bot.q.qq.com/wiki/) 的轻量适配器，不依赖 NoneBot、OneBot、NapCat 或本地 QQ 客户端。
 
-## 功能
+> 本项目由 AI 生成。
 
-- QQ 群 `GROUP_AT_MESSAGE_CREATE`
-- QQ 单聊 `C2C_MESSAGE_CREATE`
-- QQ 频道 `AT_MESSAGE_CREATE`
-- QQ 频道私信 `DIRECT_MESSAGE_CREATE`
-- gscore 文本、图片消息收发
-- 引用近期图片消息时自动恢复被引用图片
-- AccessToken 自动刷新
-- Gateway 心跳、ACK 超时检测和会话恢复
-- 限流、服务端错误和临时网络错误重试
-- 带随机抖动的指数退避重连
-- 单条消息异常隔离
-- Docker、systemd 和 Windows 计划任务部署
+支持 QQ 群聊、单聊、频道和频道私信，包含文本/图片收发、引用图片解析、断线恢复、限流重试、SQLite 状态持久化及 Docker/systemd 部署。
 
-QQ 官方机器人采用被动回复模型。群聊和单聊回复必须引用约 5 分钟内收到的 `msg_id`，因此无消息上下文的定时推送可能无法发送。这是 QQ 开放平台限制。
+> QQ 群聊和单聊采用被动回复机制，回复必须关联约 5 分钟内收到的消息，因此不适合无上下文的主动推送。
 
-QQ 收到的图片以原始 HTTPS CDN 地址上报给 core，供插件直接下载；core 发出的 `link://` 或 `base64://` 图片则通过 QQ 富媒体接口上传并发送。
+## 配置
 
-QQ 单聊和群聊的公开事件字段不包含引用 ID，但引用事件会在扩展字段中提供 `message_type=103`、`message_scene.ext` 和 `msg_elements`。适配器优先使用 `msg_elements[0].attachments` 中由 QQ 本次推送的新链接，其次按 `msg_idx/ref_msg_idx` 查询 SQLite，最后才使用同会话最近 5 分钟的图片。频道事件若提供 `message_reference`，也会按精确消息 ID查找。
-
-## 准备工作
-
-1. 在 QQ 开放平台创建机器人，取得 AppID 和 AppSecret。
-2. 按机器人类型在开放平台启用群聊、单聊或频道消息事件。
-3. 启动 gsuid_core，默认地址为 `ws://127.0.0.1:8765/ws/QQOfficial`。
-4. 复制配置模板并填写参数：
+在 QQ 开放平台创建机器人并启用需要的消息事件，然后复制配置：
 
 ```bash
 cp .env.example .env
@@ -39,64 +21,44 @@ QQ_APP_ID=你的AppID
 QQ_APP_SECRET=你的AppSecret
 GSCORE_URL=ws://127.0.0.1:8765/ws/QQOfficial
 GSCORE_TOKEN=
-LOG_LEVEL=INFO
+QQ_ADMIN_IDS=
 ```
 
-不要提交 `.env`。它已经包含在 `.gitignore` 和 `.dockerignore` 中。
+`GSCORE_TOKEN` 应与 core 的 `WS_TOKEN` 一致。`QQ_ADMIN_IDS` 可填写管理员 OpenID，多个使用英文逗号分隔。不要提交 `.env`。
 
 ## Docker Compose
 
-推荐大多数用户使用 Docker Compose：
+推荐使用 Docker Compose：
 
 ```bash
 docker compose up -d --build
 docker compose logs -f gscore-qq
 ```
 
-常见网络布局：
+根据 gsuid_core 的位置设置 `GSCORE_URL`：
 
-| gsuid_core 位置 | `GSCORE_URL` |
+| 位置 | 地址 |
 |---|---|
 | Docker 宿主机 | `ws://host.docker.internal:8765/ws/QQOfficial` |
 | 同一 Compose 网络，服务名为 `gscore` | `ws://gscore:8765/ws/QQOfficial` |
-| 另一台服务器 | `ws://服务器IP:8765/ws/QQOfficial` |
+| 远程服务器 | `ws://服务器IP:8765/ws/QQOfficial` |
 
-Linux 下 Compose 已配置 `host-gateway`。当 core 不在本机回环地址时，需要让 gsuid_core 监听外部地址，并强烈建议配置 `WS_TOKEN`。
-
-停止和升级：
-
-```bash
-docker compose down
-git pull
-docker compose up -d --build
-```
-
-镜像以非 root 用户运行，使用只读根文件系统，并启用 `no-new-privileges`。
+远程连接时，core 必须监听外部地址并配置 `WS_TOKEN`。Compose 使用持久卷保存 SQLite 状态。
 
 ## Linux systemd
-
-不使用 Docker 时，可安装为独立 systemd 服务：
 
 ```bash
 sudo sh deploy/install-systemd.sh
 sudo nano /etc/gscore-qqofficial.env
 sudo systemctl restart gscore-qq
-sudo systemctl status gscore-qq
 sudo journalctl -u gscore-qq -f
 ```
 
-安装器会创建无登录权限的 `gscore` 用户，程序安装到 `/opt/gscore-qqofficial`，配置保存在 `/etc/gscore-qqofficial.env`，权限为 `0600`。
+服务以独立低权限用户运行，状态保存于 `/var/lib/gscore-qqofficial/state.db`。
 
-升级时在新代码目录重新执行安装脚本，然后重启服务：
+## Python 运行
 
-```bash
-sudo sh deploy/install-systemd.sh
-sudo systemctl restart gscore-qq
-```
-
-## Python 直接运行
-
-要求 Python 3.10 或更高版本：
+要求 Python 3.10+：
 
 ```bash
 python3 -m venv .venv
@@ -105,95 +67,50 @@ pip install -e .
 gscore-qq
 ```
 
-Windows 激活虚拟环境使用：
-
-```powershell
-.venv\Scripts\Activate.ps1
-gscore-qq
-```
-
-Windows 长期运行可使用管理员 PowerShell 安装计划任务：
+Windows 使用 `.venv\Scripts\Activate.ps1` 激活环境。长期运行可执行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install-windows-task.ps1
 ```
 
-## 配置
-
-| 环境变量 | 默认值 | 说明 |
-|---|---|---|
-| `QQ_APP_ID` | 必填 | QQ 开放平台 AppID |
-| `QQ_APP_SECRET` | 必填 | QQ 开放平台 AppSecret |
-| `GSCORE_URL` | `ws://127.0.0.1:8765/ws/QQOfficial` | gsuid_core WebSocket 地址 |
-| `GSCORE_TOKEN` | 空 | 与 core `config.json` 中的 `WS_TOKEN` 一致 |
-| `QQ_API_BASE` | `https://api.sgroup.qq.com` | QQ OpenAPI 地址 |
-| `LOG_LEVEL` | `INFO` | 日志级别 |
-| `QQ_ADMIN_IDS` | 空 | 可执行管理命令的用户 OpenID，多个用英文逗号分隔 |
-| `STATE_PATH` | `data/state.db` | SQLite 状态文件路径 |
-| `QUEUE_SIZE` | `1000` | QQ 到 core 的最大等待队列长度 |
-| `METRICS_INTERVAL` | `60` | 健康指标日志间隔（秒） |
-
-系统环境变量优先于 `.env` 文件。
-
-回复上下文、`msg_seq` 和引用图片索引存储在 SQLite。Docker Compose 默认使用命名卷 `gscore-qq-data`，systemd 默认使用 `/var/lib/gscore-qqofficial/state.db`，因此普通重启和升级不会丢失有效上下文。
-
-程序收到 `SIGTERM`/`SIGINT` 时会停止接收新任务、取消后台监督器、关闭 WebSocket 和 HTTP 会话，再退出。运行期间每隔 `METRICS_INTERVAL` 秒输出一条健康日志，包含 QQ/core 连接状态、队列积压、上下文数量、重连次数和处理失败数。
-
 ## 管理命令
 
-先把管理员的 QQ OpenID 写入 `QQ_ADMIN_IDS`，例如：
-
-```dotenv
-QQ_ADMIN_IDS=305AB68C4C2FE10EFDA0B2381ACB7622
-```
-
-然后通过 QQ 向机器人发送：
+配置 `QQ_ADMIN_IDS` 后，管理员可向机器人发送：
 
 ```text
 /重启
 /更新
 ```
 
-同时兼容旧命令 `/gscore-qq restart` 和 `/gscore-qq update`。`/重启` 会使用当前 Python 解释器替换进程。`/更新` 仅支持 Git 源码部署，它会执行 `git pull --ff-only` 和 `pip install -e .`，成功后重启。Docker 镜像不包含 Git 仓库，必须在宿主机使用 `docker compose up -d --build` 更新。未配置管理员或 OpenID 不匹配时，管理命令会被拒绝。
-
-## 故障排查
-
-### 无法连接 `bots.qq.com`
-
-先检查 DNS 和 HTTPS：
+`/更新` 仅支持 Git 源码部署。Docker 请在宿主机运行：
 
 ```bash
-nslookup bots.qq.com
-curl -I https://bots.qq.com
+git pull
+docker compose up -d --build
 ```
 
-程序在 Windows 上显式使用系统 DNS 解析器，以规避部分 `aiodns` 环境无法联系 DNS 的问题。
+## 引用图片
 
-### 无法连接 gsuid_core
+QQ 引用事件使用扩展字段 `message_type=103`、`message_scene.ext` 和 `msg_elements`。适配器按以下顺序获取图片：
 
-- 确认 core 已启动并监听 `8765`。
-- 容器内不能使用 `localhost` 访问宿主机，使用 `host.docker.internal`。
-- 核对 `GSCORE_TOKEN` 与 core 的 `WS_TOKEN`。
-- 跨服务器部署时检查防火墙和 core 监听地址。
+1. 本次事件 `msg_elements[0].attachments` 中的新链接；
+2. SQLite 中按 `msg_idx/ref_msg_idx` 保存的图片；
+3. 同一会话最近 5 分钟的图片。
 
-### 能连接但没有回复
+图片最终以普通 gscore `image` 消息段上报，因此插件可从 `event.image` / `event.image_list` 直接读取。
 
-- 确认机器人已在 QQ 开放平台订阅对应事件。
-- 公域机器人通常只会收到 `@机器人` 的消息。
-- 检查回复是否超过 QQ 被动回复有效期。
-- 使用 `LOG_LEVEL=DEBUG` 查看详细日志。
+## 常见问题
 
-## 开发测试
+- **无法连接 core**：确认端口 `8765`、监听地址和 `GSCORE_TOKEN`；容器访问宿主机不能使用 `localhost`。
+- **连接正常但不响应**：确认 QQ 开放平台已启用对应事件；公域群机器人通常需要 `@机器人`。
+- **图片或引用异常**：确认启动日志版本为最新，并使用 `LOG_LEVEL=DEBUG` 查看原始事件处理日志。
+- **DNS 错误**：检查 `nslookup bots.qq.com` 和 `curl -I https://bots.qq.com`。
+
+## 开发
 
 ```bash
 pip install -e ".[test]"
 pytest -q
 ```
 
-适配器按照 gsuid_core 的 `MessageReceive` / `MessageSend` 协议发送二进制 JSON WebSocket 帧。QQ 侧使用官方 AccessToken、Gateway 与 OpenAPI，不模拟或控制 QQ 客户端。
-
-## 参考资料
-
-- [QQ 机器人开放平台](https://bot.q.qq.com/wiki/)
-- [QQ 官方 Python SDK](https://github.com/tencent-connect/botpy)
-- [gsuid_core 适配器开发文档](https://github.com/Genshin-bots/gsuid_core/tree/master/docs/skills/gscore-adapter-development)
+协议参考：[QQ 官方文档](https://bot.q.qq.com/wiki/) · [QQ 官方 Python SDK](https://github.com/tencent-connect/botpy) · [gsuid_core 适配器文档](https://github.com/Genshin-bots/gsuid_core/tree/master/docs/skills/gscore-adapter-development)

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 from gscore_qq.adapter import Adapter
 from gscore_qq.config import Config
 from gscore_qq.models import ReplyContext
+from gscore_qq.models import CoreSend, Segment
 from gscore_qq.state import StateStore
 
 
@@ -133,6 +134,24 @@ async def test_qq_quote_uses_fresh_msg_element_attachment(tmp_path):
     await adapter.store.close()
 
 
+async def test_full_group_message_is_reported_without_fake_at(tmp_path):
+    adapter = await make_adapter(tmp_path)
+    await adapter._handle_event(
+        "GROUP_MESSAGE_CREATE",
+        {
+            "id": "group-message",
+            "group_openid": "group",
+            "author": {"member_openid": "member"},
+            "content": "ww帮助",
+        },
+        "event",
+    )
+    payload = msgspec.json.decode(await adapter._core_queue.get())
+    assert payload["user_type"] == "group"
+    assert payload["group_id"] == "group"
+    assert payload["content"] == [{"type": "text", "data": "ww帮助"}]
+
+
 async def test_quote_cache_uses_msg_idx_not_platform_message_id(tmp_path):
     adapter = await make_adapter(tmp_path)
     url = "https://multimedia.nt.qq.com.cn/download?rkey=cached"
@@ -211,6 +230,29 @@ def test_request_stop_sets_shutdown_event():
     adapter = Adapter(Config("id", "secret"))
     adapter.request_stop()
     assert adapter._stop.is_set()
+
+
+async def test_proactive_text_has_no_passive_reply_fields(tmp_path):
+    adapter = await make_adapter(tmp_path)
+
+    class FakeAPI:
+        def __init__(self):
+            self.calls = []
+
+        async def send_text(self, ctx, content):
+            self.calls.append((ctx, content))
+
+    api = FakeAPI()
+    adapter.api = api
+    await adapter._handle_core_message(
+        CoreSend(bot_id="qqofficial", target_type="direct", target_id="user", content=[Segment("text", "提醒")])
+    )
+    assert len(api.calls) == 1
+    ctx, content = api.calls[0]
+    assert ctx.msg_id == ""
+    assert ctx.seq == 0
+    assert content == "提醒"
+    await adapter.store.close()
 
 
 async def test_run_closes_cleanly_when_stop_requested(tmp_path):

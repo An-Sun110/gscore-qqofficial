@@ -190,6 +190,7 @@ class Adapter:
     async def _handle_event(self, event: str, data: dict[str, Any], event_id: str) -> None:
         mapping = {
             "GROUP_AT_MESSAGE_CREATE": ("group", "group_openid", "group"),
+            "GROUP_MESSAGE_CREATE": ("group", "group_openid", "group"),
             "C2C_MESSAGE_CREATE": ("c2c", "author.id", "direct"),
             "AT_MESSAGE_CREATE": ("channel", "channel_id", "sub_channel"),
             "DIRECT_MESSAGE_CREATE": ("direct", "guild_id", "direct"),
@@ -282,10 +283,14 @@ class Adapter:
         async with self._send_locks[key]:
             ctx = await self.store.get_context(*key)
             if not ctx:
-                log.warning("找不到或已过期的回复上下文 %s:%s", *key)
-                return
+                if not self.config.proactive_enabled:
+                    log.warning("找不到回复上下文且主动消息已禁用 %s:%s", *key)
+                    return
+                ctx = ReplyContext(kind, message.target_id, "")
+                self.metrics["proactive_attempts"] += 1
+                log.info("发送主动消息 %s:%s", *key)
             await self._send_core_message(message, ctx, key)
-            self.metrics["responses_ok"] += 1
+            self.metrics["proactive_ok" if not ctx.msg_id else "responses_ok"] += 1
 
     async def _send_core_message(self, message: CoreSend, ctx: ReplyContext, key: tuple[str, str]) -> None:
         text_parts: list[str] = []
@@ -304,12 +309,14 @@ class Adapter:
 
     async def _send_text(self, ctx: ReplyContext, key: tuple[str, str], text: str) -> None:
         assert self.store and self.api
-        await self.store.reserve_sequence(*key, ctx)
+        if ctx.msg_id:
+            await self.store.reserve_sequence(*key, ctx)
         await self.api.send_text(ctx, text)
 
     async def _send_image(self, ctx: ReplyContext, key: tuple[str, str], image: str) -> None:
         assert self.store and self.api
-        await self.store.reserve_sequence(*key, ctx)
+        if ctx.msg_id:
+            await self.store.reserve_sequence(*key, ctx)
         await self.api.send_image(ctx, image)
 
     async def _handle_admin_command(self, text: str, user_id: str, core_kind: str, context_id: str, ctx: ReplyContext) -> bool:

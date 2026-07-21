@@ -4,7 +4,7 @@
 
 > 本项目由 AI 生成。
 
-支持 QQ 群聊、单聊、频道和频道私信，包含文本/图片收发、引用图片解析、断线恢复、限流重试、SQLite 状态持久化及 Docker/systemd 部署。
+支持 QQ 群聊全量消息、单聊、频道和频道私信，包含文本/图片收发、引用图片解析、断线恢复、限流重试、SQLite 状态持久化及 Docker/systemd 部署。
 
 > QQ 群聊和单聊采用被动回复机制，回复必须关联约 5 分钟内收到的消息，因此不适合无上下文的主动推送。
 
@@ -25,6 +25,10 @@ QQ_ADMIN_IDS=
 ```
 
 `GSCORE_TOKEN` 应与 core 的 `WS_TOKEN` 一致。`QQ_ADMIN_IDS` 可填写管理员 OpenID，多个使用英文逗号分隔。不要提交 `.env`。
+
+默认允许主动消息：core 下发带 `target_type` 和 `target_id` 的消息时，即使没有最近的回复上下文也会直接发送。设置 `PROACTIVE_ENABLED=false` 可关闭。
+
+群聊全量消息需要群主在 QQ 中允许机器人接收群内全部消息。普通群消息不会伪装成 `@机器人`，是否触发由 gsuid_core 插件的命令前缀决定。
 
 ## Docker Compose
 

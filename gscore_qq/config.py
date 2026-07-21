@@ -20,6 +20,7 @@ class Config:
     state_path: Path = Path("data/state.db")
     queue_size: int = 1000
     metrics_interval: int = 60
+    proactive_enabled: bool = True
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -39,6 +40,7 @@ class Config:
             state_path=Path(os.getenv("STATE_PATH", "data/state.db")),
             queue_size=max(10, int(os.getenv("QUEUE_SIZE", "1000"))),
             metrics_interval=max(10, int(os.getenv("METRICS_INTERVAL", "60"))),
+            proactive_enabled=os.getenv("PROACTIVE_ENABLED", "true").lower() not in {"0", "false", "no", "off"},
         )
 
     @property
